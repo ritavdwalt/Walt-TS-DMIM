@@ -1,0 +1,11 @@
+# Ignore server environments and VS Code backend
+miniconda3/
+trilogy_env/
+.vscode-server/
+__pycache__/
+*.pyc
+
+# Ignore data and logs
+*.log
+*.csv
+*.dat
