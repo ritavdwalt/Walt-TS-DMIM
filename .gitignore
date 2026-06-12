@@ -4,6 +4,7 @@ trilogy_env/
 .vscode-server/
 __pycache__/
 *.pyc
+*.egg-info/
 
 # Ignore data and logs
 *.log
