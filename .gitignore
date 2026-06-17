@@ -1,12 +1,47 @@
-# Ignore server environments and VS Code backend
-miniconda3/
-trilogy_env/
-.vscode-server/
+# ==========================================
+# 1. PYTHON CORE & VIRTUAL ENVIRONMENTS
+# ==========================================
 __pycache__/
-*.pyc
+*.py[cod]
+*$py.class
 *.egg-info/
+build/
+dist/
+venv/
+env/
+miniconda3/
+miniconda_local/
+trilogy_env/
 
-# Ignore data and logs
-*.log
+# ==========================================
+# 2. PROPRIETARY DATA & LOGS
+# ==========================================
+# Blocks the entire input directory regardless of file type
+inputfiles/
 *.csv
 *.dat
+*.log
+
+# ==========================================
+# 3. PRIVATE TESTING SCRIPTS (Do Not Publish)
+# ==========================================
+legacy_notebook.py
+testingcode.py
+format_datasets.py
+
+# ==========================================
+# 4. TESTING OUTPUTS & ARTIFACTS
+# ==========================================
+# Explicitly ignores test outputs while preserving README.md and doc images
+ts_diagnostic_report.md
+legacy_grid.png
+library_grid.png
+diagnostic_grid_results.png
+
+# ==========================================
+# 5. IDE & OS ARTIFACTS
+# ==========================================
+.vscode/
+.vscode-server/
+.DS_Store
+.ipynb_checkpoints/
