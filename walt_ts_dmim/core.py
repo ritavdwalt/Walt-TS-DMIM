@@ -62,6 +62,30 @@ class TemporalAnalyzer:
         n_jobs: Number of CPU cores to allocate. Set to -1 to use all cores.
         """
         self.logger.info(f"Initiating Temporal DMIM Sweeps (n_jobs={n_jobs})...")
+        
+        # --- MISSING LINK FIX: Build the relational matrices dynamically ---
+        if not hasattr(self, 'matrices'):
+            self.logger.info("Building O(1) relational lag matrices...")
+            
+            # Extract target array and timesteps
+            self.y_array = self.indoor_df[self.target_col].values
+            target_timesteps = self.indoor_df['timestep'].values if 'timestep' in self.indoor_df.columns else self.indoor_df.index.values
+            
+            # Initialize empty matrix dictionary
+            self.matrices = {}
+            weather_cols = [c for c in self.weather_df.columns if c != 'timestep' and c != self.target_col]
+            
+            for col in weather_cols:
+                self.matrices[col] = np.zeros((len(target_timesteps), self.max_lag_steps))
+                
+            # O(1) Vectorized Time-Shift using Pandas index matching
+            for k in range(self.max_lag_steps):
+                lagged_timesteps = target_timesteps - k
+                lagged_weather = self.weather_df.reindex(lagged_timesteps).fillna(0)
+                for col in weather_cols:
+                    self.matrices[col][:, k] = lagged_weather[col].values
+        # -------------------------------------------------------------------
+
         self.dmim_curves = {}
 
         # The isolated function that runs on a single core
