@@ -1,8 +1,13 @@
+import os
 import logging
 import pandas as pd
 import numpy as np
 from .wrappers import compute_single_lag_dmim
 from .diagnostics import extract_signal_holistic
+from SALib.analyze import delta
+from joblib import Parallel, delayed
+from threadpoolctl import threadpool_limits
+from tqdm import tqdm
 
 class TemporalAnalyzer:
     def __init__(self, weather_df: pd.DataFrame, indoor_df: pd.DataFrame, target_col: str, max_lag_steps: int):
@@ -51,21 +56,52 @@ class TemporalAnalyzer:
         
         return X_lagged, y_aligned
 
-    def compute_sweeps(self, num_resamples=10, seed=42):
-        self.dmim_curves = {param: {'raw': np.zeros(self.max_lag_steps), 
-                                    'balanced': np.zeros(self.max_lag_steps), 
-                                    'step': np.zeros(self.max_lag_steps)} 
-                            for param in self.weather_df.columns}
-        
-        for k in range(self.max_lag_steps):
-            X_lagged, y_aligned = self.get_lagged_data(k)
-            for col_idx, param in enumerate(self.weather_df.columns):
-                x_col = X_lagged[:, col_idx]
-                scores = compute_single_lag_dmim(x_col, y_aligned, num_resamples, seed)
-                self.dmim_curves[param]['raw'][k] = scores['raw']
-                self.dmim_curves[param]['balanced'][k] = scores['balanced']
-                self.dmim_curves[param]['step'][k] = scores['step']
+    def compute_sweeps(self, num_resamples: int = 10, seed: int = 42, n_jobs: int = 1):
+        """
+        Executes DMIM across all temporal lags.
+        n_jobs: Number of CPU cores to allocate. Set to -1 to use all cores.
+        """
+        self.logger.info(f"Initiating Temporal DMIM Sweeps (n_jobs={n_jobs})...")
+        self.dmim_curves = {}
+
+        # The isolated function that runs on a single core
+        def _compute_single_lag(x_col, y_array, k):
+            if np.var(x_col) < 1e-5:
+                return k, {'raw': 0.0, 'balanced': 0.0, 'step': 0.0}
+            
+            problem = {'num_vars': 1, 'names': ['X'], 'bounds': [[np.min(x_col), np.max(x_col)]]}
+            x_reshaped = x_col.reshape(-1, 1)
+            
+            # CRITICAL: Force underlying C-libraries to strictly use 1 thread to prevent thrashing
+            with threadpool_limits(limits=1, user_api='blas'):
+                results = delta.analyze(problem, x_reshaped, y_array, num_resamples=num_resamples, seed=seed, print_to_console=False)
+            
+            return k, {
+                'raw': results.get('delta_raw', [0.0])[0],
+                'balanced': results.get('delta_balanced', [0.0])[0],
+                'step': results.get('delta_step', [0.0])[0]
+            }
+
+        # Loop over every weather parameter
+        for param, matrix in self.matrices.items():
+            self.logger.info(f" Sweeping parameter: {param}")
+            num_lags = matrix.shape[1]
+            
+            # Parallelize the lag computations with a progress bar
+            parallel_results = Parallel(n_jobs=n_jobs)(
+                delayed(_compute_single_lag)(matrix[:, k], self.y_array, k) 
+                for k in tqdm(range(num_lags), desc=f"Processing {param}", unit="lag")
+            )
+            
+            # Reconstruct the ordered arrays from the parallel output
+            param_results = {'raw': np.zeros(num_lags), 'balanced': np.zeros(num_lags), 'step': np.zeros(num_lags)}
+            for k, scores in parallel_results:
+                param_results['raw'][k] = scores['raw']
+                param_results['balanced'][k] = scores['balanced']
+                param_results['step'][k] = scores['step']
                 
+            self.dmim_curves[param] = param_results
+            
         return self.dmim_curves
 
     def generate_profiles(self, metric_mapping=None, smooth_window=6):
@@ -101,3 +137,30 @@ class TemporalAnalyzer:
                 self.acf_curves[col] = curve
                 
         return self.acf_curves
+    
+    def export_results(self, output_dir: str, file_prefix: str = "run001"):
+        """Exports raw curves, ACF, and metrics to CSV for external analysis."""
+        os.makedirs(output_dir, exist_ok=True)
+        
+        # 1. Export Topological Metrics
+        if hasattr(self, 'profiles'):
+            metrics_list = []
+            for param, prof in self.profiles.items():
+                prof_dict = vars(prof).copy()
+                prof_dict['parameter'] = param
+                metrics_list.append(prof_dict)
+            pd.DataFrame(metrics_list).to_csv(os.path.join(output_dir, f"{file_prefix}_metrics.csv"), index=False)
+            
+        # 2. Export Raw DMIM Curves
+        if hasattr(self, 'dmim_curves'):
+            dmim_df = pd.DataFrame()
+            for param, curves in self.dmim_curves.items():
+                for metric, array in curves.items():
+                    dmim_df[f"{param}_{metric}"] = array
+            dmim_df.to_csv(os.path.join(output_dir, f"{file_prefix}_raw_dmim.csv"), index_label="lag_step")
+            
+        # 3. Export ACF Baseline
+        if hasattr(self, 'acf_curves'):
+            pd.DataFrame(self.acf_curves).to_csv(os.path.join(output_dir, f"{file_prefix}_acf_baseline.csv"), index_label="lag_step")
+            
+        self.logger.info(f"✅ Data exported to {output_dir}/ with prefix '{file_prefix}'")

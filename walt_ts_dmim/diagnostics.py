@@ -104,7 +104,8 @@ def extract_signal_holistic(param_name: str, curves_dict: dict, metric: str = 'b
         confidence=confidence, flags=flags
     )
 
-def plot_diagnostic_grid(dmim_curves_dict: dict, acf_curves_dict: dict, profiles_dict: dict, smooth_window=6, show_plot=False):
+def plot_diagnostic_grid(dmim_curves_dict, acf_curves_dict, profiles_dict, smooth_window=6, show_plot=False,
+                         save_path=None, title_prefix=""):
     """Generates the visual grid isolating the Causal Basin and topological metrics."""
     params = list(dmim_curves_dict.keys())
     num_params = len(params)
@@ -161,18 +162,18 @@ def plot_diagnostic_grid(dmim_curves_dict: dict, acf_curves_dict: dict, profiles
         lines_2, labels_2 = ax2.get_legend_handles_labels()
         ax1.legend(lines_1 + lines_2, labels_1 + labels_2, loc='upper left', fontsize=9)
         
+        title = f"{title_prefix} {param.replace('_', ' ').upper()}" if title_prefix else f"{param.replace('_', ' ').upper()}"
+        ax1.set_title(title, color='black', fontsize=14, fontweight='bold')
+    
     for j in range(i + 1, len(axes)):
         fig.delaxes(axes[j])
         
     fig.tight_layout()
-    fig.tight_layout()
-    
-    # Generate the file instead of a pop-up
-    output_filename = "diagnostic_grid_results.png"
-    plt.savefig(output_filename, dpi=300, bbox_inches='tight')
-    print(f"\n[!] Plot successfully saved to {output_filename}")
-    if show_plot==True:
+
+    if save_path:
+        plt.savefig(save_path, dpi=300, bbox_inches='tight')
+        if show_plot==True: plt.show()
+    else:
         plt.show()
-    
-    # Close the figure to prevent server RAM leaks during big loops
+
     plt.close(fig)

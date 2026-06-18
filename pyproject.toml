@@ -12,7 +12,10 @@ dependencies = [
     "pandas",
     "numpy",
     "scipy",
-    "matplotlib"
+    "matplotlib",
+    "joblib",          # For parallel processing
+    "threadpoolctl",   # For strict 1-core BLAS thread limiting
+    "tqdm"             # For terminal progress bars
 ]
 
 [tool.setuptools]
