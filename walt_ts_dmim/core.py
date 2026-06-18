@@ -75,3 +75,29 @@ class TemporalAnalyzer:
             metric = metric_mapping.get(param, 'balanced')
             self.profiles[param] = extract_signal_holistic(param, curves, metric, smooth_window, self.system_warnings.get(param, []))
         return self.profiles
+    
+    def compute_acf(self):
+        """Generates continuous ACF baseline curves using row-based integer steps."""
+        self.logger.info("Computing continuous ACF baseline...")
+        self.acf_curves = {}
+        df_filled = self.weather_df.fillna(0)
+        
+        for col in df_filled.columns:
+            array = df_filled[col].to_numpy()
+            array_centered = array - np.mean(array)
+            variance = np.sum(array_centered ** 2)
+            
+            if variance == 0:
+                self.acf_curves[col] = np.zeros(self.max_lag_steps)
+            else:
+                acf_full = np.correlate(array_centered, array_centered, mode='full')
+                center_index = len(array) - 1
+                limit = min(self.max_lag_steps, len(array))
+                curve = acf_full[center_index : center_index + limit] / variance
+                
+                # Pad if data is shorter than max_lag_steps
+                if len(curve) < self.max_lag_steps:
+                    curve = np.pad(curve, (0, self.max_lag_steps - len(curve)))
+                self.acf_curves[col] = curve
+                
+        return self.acf_curves

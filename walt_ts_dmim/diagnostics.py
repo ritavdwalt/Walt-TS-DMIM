@@ -104,7 +104,7 @@ def extract_signal_holistic(param_name: str, curves_dict: dict, metric: str = 'b
         confidence=confidence, flags=flags
     )
 
-def plot_diagnostic_grid(dmim_curves_dict: dict, acf_curves_dict: dict, profiles_dict: dict, smooth_window=6):
+def plot_diagnostic_grid(dmim_curves_dict: dict, acf_curves_dict: dict, profiles_dict: dict, smooth_window=6, show_plot=False):
     """Generates the visual grid isolating the Causal Basin and topological metrics."""
     params = list(dmim_curves_dict.keys())
     num_params = len(params)
@@ -138,11 +138,18 @@ def plot_diagnostic_grid(dmim_curves_dict: dict, acf_curves_dict: dict, profiles
         ax1.axvspan(profile.basin_left, profile.basin_right, color='tab:blue', alpha=0.1, label='Causal Basin Bounds')
         ax1.axvline(x=profile.peak_lag_steps, color='red', linestyle='-', linewidth=2, label=f'Peak Extracted: {profile.peak_lag_steps}')
         
+        # Determine a visual warning symbol based on the engine's confidence rating
+        # Using standard, universally supported text/unicode characters
+        if "Low" in profile.confidence:
+            status_symbol = "⚠ WARNING (Noise)"  # Standard warning sign (U+26A0) or just "[!]"
+        else:
+            status_symbol = "✓ Valid Signal"     # Standard checkmark (U+2713)
+
         textstr = '\n'.join((
+            f"Status: {status_symbol}",
             f"Peak Lag: {profile.peak_lag_steps} steps",
             f"Peak Delta: {profile.peak_delta_unsmoothed:.4f}",
             f"Prominence Ratio: {profile.prominence_ratio:.4f}",
-            f"Duration (t>0.98): {profile.duration_t98_steps} steps",
             f"Cumulative AUC: {profile.cumulative_auc:.4f}"
         ))
         
@@ -164,6 +171,8 @@ def plot_diagnostic_grid(dmim_curves_dict: dict, acf_curves_dict: dict, profiles
     output_filename = "diagnostic_grid_results.png"
     plt.savefig(output_filename, dpi=300, bbox_inches='tight')
     print(f"\n[!] Plot successfully saved to {output_filename}")
+    if show_plot==True:
+        plt.show()
     
     # Close the figure to prevent server RAM leaks during big loops
     plt.close(fig)

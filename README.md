@@ -5,7 +5,7 @@
 
 A highly optimized, object-oriented Python framework for executing Global Sensitivity Analysis (GSA) across complex, asynchronous time-series data. 
 
-**Walt-TS-DMIM** adapts the density-based Delta Moment-Independent Measure (DMIM) for temporal data, allowing researchers to extract true physical causality, identify time-lags, and filter out statistical noise in dynamic systems (like building thermodynamics and Industrial IoT networks).
+**Walt TS-DMIM** adapts the density-based Delta Moment-Independent Measure (DMIM) for temporal data, allowing researchers to extract true physical causality, identify time-lags, and filter out statistical noise in dynamic systems (like building thermodynamics and Industrial IoT networks).
 
 ---
 
