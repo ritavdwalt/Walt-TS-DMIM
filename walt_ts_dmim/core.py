@@ -56,68 +56,68 @@ class TemporalAnalyzer:
         
         return X_lagged, y_aligned
 
-    def compute_sweeps(self, num_resamples: int = 10, seed: int = 42, n_jobs: int = 1):
+    def compute_sweeps(self, num_resamples: int = 10, seed: int = 42, n_jobs: int = 1, checkpoint_dir: str = None):
         """
-        Executes DMIM across all temporal lags.
-        n_jobs: Number of CPU cores to allocate. Set to -1 to use all cores.
+        Executes DMIM across all temporal lags with optional fault-tolerance.
+        checkpoint_dir: If provided, saves/loads parameter progress intermittently.
         """
         self.logger.info(f"Initiating Temporal DMIM Sweeps (n_jobs={n_jobs})...")
         
-        # --- MISSING LINK FIX: Build the relational matrices dynamically ---
+        # --- Build O(1) Relational Matrices ---
         if not hasattr(self, 'matrices'):
             self.logger.info("Building O(1) relational lag matrices...")
-            
-            # Extract target array and timesteps
             self.y_array = self.indoor_df[self.target_col].values
             target_timesteps = self.indoor_df['timestep'].values if 'timestep' in self.indoor_df.columns else self.indoor_df.index.values
             
-            # Initialize empty matrix dictionary
             self.matrices = {}
             weather_cols = [c for c in self.weather_df.columns if c != 'timestep' and c != self.target_col]
-            
             for col in weather_cols:
                 self.matrices[col] = np.zeros((len(target_timesteps), self.max_lag_steps))
                 
-            # O(1) Vectorized Time-Shift using Pandas index matching
             for k in range(self.max_lag_steps):
                 lagged_timesteps = target_timesteps - k
                 lagged_weather = self.weather_df.reindex(lagged_timesteps).fillna(0)
                 for col in weather_cols:
                     self.matrices[col][:, k] = lagged_weather[col].values
-        # -------------------------------------------------------------------
 
         self.dmim_curves = {}
+        
+        # Create checkpoint directory if requested
+        if checkpoint_dir:
+            os.makedirs(checkpoint_dir, exist_ok=True)
 
-        # The isolated function that runs on a single core
         def _compute_single_lag(x_col, y_array, k):
-            if np.var(x_col) < 1e-5:
-                return k, {'raw': 0.0, 'balanced': 0.0, 'step': 0.0}
-            
+            if np.var(x_col) < 1e-5: return k, {'raw': 0.0, 'balanced': 0.0, 'step': 0.0}
             problem = {'num_vars': 1, 'names': ['X'], 'bounds': [[np.min(x_col), np.max(x_col)]]}
             x_reshaped = x_col.reshape(-1, 1)
-            
-            # CRITICAL: Force underlying C-libraries to strictly use 1 thread to prevent thrashing
             with threadpool_limits(limits=1, user_api='blas'):
                 results = delta.analyze(problem, x_reshaped, y_array, num_resamples=num_resamples, seed=seed, print_to_console=False)
-            
-            return k, {
-                'raw': results.get('delta_raw', [0.0])[0],
-                'balanced': results.get('delta_balanced', [0.0])[0],
-                'step': results.get('delta_step', [0.0])[0]
-            }
+            return k, {'raw': results.get('delta_raw', [0.0])[0], 'balanced': results.get('delta_balanced', [0.0])[0], 'step': results.get('delta_step', [0.0])[0]}
 
         # Loop over every weather parameter
         for param, matrix in self.matrices.items():
+            
+            # --- FAULT TOLERANCE: Auto-Resume Logic ---
+            if checkpoint_dir:
+                checkpoint_file = os.path.join(checkpoint_dir, f"{param}_checkpoint.csv")
+                if os.path.exists(checkpoint_file):
+                    self.logger.info(f" ♻️ Resuming {param} from existing checkpoint...")
+                    df_check = pd.read_csv(checkpoint_file)
+                    self.dmim_curves[param] = {
+                        'raw': df_check['raw'].values, 
+                        'balanced': df_check['balanced'].values, 
+                        'step': df_check['step'].values
+                    }
+                    continue # Skip the math, move to the next parameter!
+
             self.logger.info(f" Sweeping parameter: {param}")
             num_lags = matrix.shape[1]
             
-            # Parallelize the lag computations with a progress bar
             parallel_results = Parallel(n_jobs=n_jobs)(
                 delayed(_compute_single_lag)(matrix[:, k], self.y_array, k) 
                 for k in tqdm(range(num_lags), desc=f"Processing {param}", unit="lag")
             )
             
-            # Reconstruct the ordered arrays from the parallel output
             param_results = {'raw': np.zeros(num_lags), 'balanced': np.zeros(num_lags), 'step': np.zeros(num_lags)}
             for k, scores in parallel_results:
                 param_results['raw'][k] = scores['raw']
@@ -125,6 +125,11 @@ class TemporalAnalyzer:
                 param_results['step'][k] = scores['step']
                 
             self.dmim_curves[param] = param_results
+            
+            # --- FAULT TOLERANCE: Intermittent Saving ---
+            if checkpoint_dir:
+                pd.DataFrame(param_results).to_csv(checkpoint_file, index=False)
+                self.logger.info(f" 💾 Checkpoint saved for {param}")
             
         return self.dmim_curves
 
